@@ -235,29 +235,6 @@ def replace_text_single_image(fn, dataset_path):
     #
     ctx.stroke()  # commit to surface
     surface.write_to_png('./replaced/'+fn)  # write to file
-    # # display using PIL
-    # import pdb
-    # pdb.set_trace()
-    # im = Image.frombuffer("RGB",
-    #                       (img.shape[1], img_shape[0]),
-    #                       surface.get_data(),
-    #                       "raw",
-    #                       "BGR",
-    #                       0, 1)  # don't ask me what these are!
-    # im.show()
-
-
-
-        # cv2.imshow("replaced", img_result_text_replaced)
-    # cv2.waitKey(1)
-
-    # import pdb
-    # pdb.set_trace()
-    # print(img_result_text_replaced.dtype)
-
-    # cv2.imwrite('./replaced/'+fn, img_result_text_replaced*255)
-
-
 
 
 
