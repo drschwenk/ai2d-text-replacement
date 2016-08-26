@@ -15,7 +15,9 @@ import cairocffi as cairo
 from kmedoids import cluster
 from low_rank import low_rank
 
+
 is_visualize = True
+target_rels = ['intraObjectLinkage', 'intraObjectRegionLabel', 'intraObjectLabel', 'intraObjectTextLinkage']
 
 
 def crop_with_safe_pad(img, rect, pad=0):
@@ -26,7 +28,7 @@ def crop_with_safe_pad(img, rect, pad=0):
 
 def put_homogeneous_patch(img, rect, majority_color, pad=0):
     """
-    modifying img
+    this function modifies the img argument
     :param img:
     :param rect:
     :param majority_color:
@@ -35,7 +37,7 @@ def put_homogeneous_patch(img, rect, majority_color, pad=0):
     """
     start_y = max(rect[0][1]-pad, 0)
     start_x = max(rect[0][0]-pad, 0)
-    img[start_y-pad:rect[1][1]+pad, start_x-pad:rect[1][0]+pad, :] = majority_color  # python is insensitve to outside indexing
+    img[start_y:rect[1][1]+pad, start_x:rect[1][0]+pad, :] = majority_color  # python is insensitve to outside indexing
 
 
 def centroid_histogram(clt):
@@ -167,9 +169,9 @@ def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, an
     img_org = img.copy()
     text_annotations = annotation['text']  # text regions
     for i, ta in enumerate(text_annotations):
-        if not is_this_text_in_relationship(annotation['relationships'], ta, ['intraObjectLinkage', 'intraObjectRegionLabel', 'intraObjectLabel', 'intraObjectTextLinkage']):
-            print("%s is not in the target relationship" % ta)
+        if not is_this_text_in_relationship(annotation['relationships'], ta, target_rels):
             continue
+        print("%s [%s] has the relationship" % (ta, text_annotations[ta]['value']))
         rect = text_annotations[ta]['rectangle']
         replacement_text = text_annotations[ta]['replacementText']
 
@@ -196,7 +198,7 @@ def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, an
         rects.append(rect)
         #
         if not is_easy:
-            mask[rect[0][1]:rect[1][1], rect[0][0]:rect[1][0]] = 255
+            mask[rect[0][1]:rect[1][1], rect[0][0]:rect[1][0]] = 255  # todo: change it to a function call
         # 2. modify img with homogeneous color
         put_homogeneous_patch(img, rect, majority_color, 3)
         # put_homogeneous_patch_with_tight_bb(img, rect, majority_color, 10)
@@ -224,6 +226,45 @@ def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, an
         mask = cv2.fillConvexPoly(mask, np.array(arrow_polygon, dtype=np.int32), (0))
     cv2.imshow("mask wo arrow", mask)
     cv2.waitKey(1)
+
+
+def put_text_in_rects(img_result, rects, replacement_texts, img):
+    img_result_text_replaced = img_result.copy()
+    fn_temp = "./temp_%d.png" % int(np.random.rand()*100)
+    cv2.imwrite(fn_temp, img_result * 255)
+    surface = cairo.ImageSurface.create_from_png(fn_temp)
+    ctx = cairo.Context(surface)
+    os.remove(fn_temp)
+    # figuring out text box size
+    heights = []
+    for i, rect in enumerate(rects):
+        heights.append(rect[1][1] - rect[0][1])
+    mean_height = np.median(heights)
+    for i, rect in enumerate(rects):
+        img_cropped = crop_with_safe_pad(img, rect, 0)
+        img_array = img_cropped.reshape((img_cropped.shape[0] * img_cropped.shape[1], 3))
+        clt = KMeans(n_clusters = 3)
+        clt.fit(img_array)
+        hist = centroid_histogram(clt)
+        majority_hist_idx = np.argmax(hist)
+        majority_color = clt.cluster_centers_[majority_hist_idx]  # todo: this color might have been distorted
+        text_color = ()
+        if majority_color.mean() < 40:
+            text_color = (1.0, 1.0, 1.0)
+        else:
+            text_color = (0.0, 0.0, 0.0)
+        # # put text by opencv
+        # img_result_text_replaced = cv2.putText(img_result_text_replaced, replacement_texts[i], (int((0.6*rect[0][0]+0.4*rect[1][0])), int((0.2*rect[0][1]+0.8*rect[1][1]))),
+        #             cv2.FONT_HERSHEY_DUPLEX, 0.4/13.0*float(rect[1][1]-rect[0][1]), text_color)
+        # put text by CAIRO
+        ctx.select_font_face('Sans')
+        ctx.set_font_size(0.9*mean_height)  # em-square height is 90 pixels
+        ctx.move_to( int((0.6*rect[0][0]+0.4*rect[1][0])), int((0.2*rect[0][1]+0.8*rect[1][1])) )  # move to point (x, y) = (10, 90)
+        ctx.set_source_rgb(text_color[0], text_color[1], text_color[2])  # yellow
+        ctx.show_text(replacement_texts[i])
+    #
+    ctx.stroke()  # commit to surface
+    surface.write_to_png('./replaced/'+fn)  # write to file
 
 
 def replace_text_single_image(fn, dataset_path):
@@ -267,45 +308,11 @@ def replace_text_single_image(fn, dataset_path):
     img_result = inpaint.inpaint_biharmonic(img, mask, multichannel=True)
     print("inpainting %s finished" % fn)
     #
-    cv2.imshow("removed", img_result)
-    cv2.waitKey(1)
+    if is_visualize:
+        cv2.imshow("removed", img_result)
+        cv2.waitKey(1)
     #
-    img_result_text_replaced = img_result.copy()
-    fn_temp = "./temp_%d.png" % int(np.random.rand()*100)
-    cv2.imwrite(fn_temp, img_result * 255)
-    surface = cairo.ImageSurface.create_from_png(fn_temp)
-    ctx = cairo.Context(surface)
-    os.remove(fn_temp)
-    # figuring out text box size
-    heights = []
-    for i, rect in enumerate(rects):
-        heights.append(rect[1][1] - rect[0][1])
-    mean_height = np.median(heights)
-    for i, rect in enumerate(rects):
-        img_cropped = crop_with_safe_pad(img, rect, 0)
-        img_array = img_cropped.reshape((img_cropped.shape[0] * img_cropped.shape[1], 3))
-        clt = KMeans(n_clusters = 3)
-        clt.fit(img_array)
-        hist = centroid_histogram(clt)
-        majority_hist_idx = np.argmax(hist)
-        majority_color = clt.cluster_centers_[majority_hist_idx]  # todo: this color might have been distorted
-        text_color = ()
-        if majority_color.mean() < 30:
-            text_color = (1.0, 1.0, 1.0)
-        else:
-            text_color = (0.0, 0.0, 0.0)
-        # # put text by opencv
-        # img_result_text_replaced = cv2.putText(img_result_text_replaced, replacement_texts[i], (int((0.6*rect[0][0]+0.4*rect[1][0])), int((0.2*rect[0][1]+0.8*rect[1][1]))),
-        #             cv2.FONT_HERSHEY_DUPLEX, 0.4/13.0*float(rect[1][1]-rect[0][1]), text_color)
-        # put text by CAIRO
-        ctx.select_font_face('Sans')
-        ctx.set_font_size(mean_height)  # em-square height is 90 pixels
-        ctx.move_to( int((0.6*rect[0][0]+0.4*rect[1][0])), int((0.2*rect[0][1]+0.8*rect[1][1])) )  # move to point (x, y) = (10, 90)
-        ctx.set_source_rgb(text_color[0], text_color[1], text_color[2])  # yellow
-        ctx.show_text(replacement_texts[i])
-    #
-    ctx.stroke()  # commit to surface
-    surface.write_to_png('./replaced/'+fn)  # write to file
+    put_text_in_rects(img_result, rects, replacement_texts, img)
 
 
 
@@ -314,11 +321,11 @@ if __name__ == '__main__':
     # read list of images in GND category annotation
     with open(os.path.join(dataset_path, "categories.json")) as f:
         file_list = json.loads(f.read())
-    #
+    # #
     parallel.multimap(replace_text_single_image, file_list, dataset_path)
 
     # for fn in file_list:
     #     replace_text_single_image(fn, dataset_path)
 
-    # fn = '1712.png'
+    # fn = '4035.png'
     # replace_text_single_image(fn, dataset_path)
