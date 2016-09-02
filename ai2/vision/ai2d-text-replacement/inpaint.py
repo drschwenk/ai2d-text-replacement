@@ -15,6 +15,8 @@ import cairocffi as cairo
 from kmedoids import cluster
 from low_rank import low_rank
 
+from parse_annotation import is_this_text_in_relationship
+
 
 is_visualize = False
 target_rels = ['intraObjectLinkage', 'intraObjectRegionLabel', 'intraObjectLabel', 'intraObjectTextLinkage']
@@ -181,13 +183,6 @@ def put_homogeneous_patch_with_tight_bb(img, rect, majority_color, pad=0):
     img[start_y:rect[1][1]+pad, start_x:rect[1][0]+pad, :] = patch
 
 
-def is_this_text_in_relationship(relationship_annots, text_label, target_relationships):
-    for relationship in relationship_annots:
-        if text_label in relationship and relationship_annots[relationship]['category'] in target_relationships:
-            return True
-    return False
-
-
 def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, annotation):
     img_org = img.copy()
     text_annotations = annotation['text']  # text regions
@@ -254,7 +249,6 @@ def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, an
 
 
 def put_text_in_rects(img_result, rects, replacement_texts, img, fn):
-    img_result_text_replaced = img_result.copy()
     fn_temp = "./temp_%d.png" % int(np.random.rand()*10000)
     cv2.imwrite(fn_temp, img_result * 255)
     surface = cairo.ImageSurface.create_from_png(fn_temp)
@@ -280,10 +274,11 @@ def put_text_in_rects(img_result, rects, replacement_texts, img, fn):
             text_color = (1.0, 1.0, 1.0)
         else:
             text_color = (0.0, 0.0, 0.0)
-        # # put text by opencv
+        # #- put text by opencv
         # img_result_text_replaced = cv2.putText(img_result_text_replaced, replacement_texts[i], (int((0.6*rect[0][0]+0.4*rect[1][0])), int((0.2*rect[0][1]+0.8*rect[1][1]))),
         #             cv2.FONT_HERSHEY_DUPLEX, 0.4/13.0*float(rect[1][1]-rect[0][1]), text_color)
-        # put text by CAIRO
+
+        #- put text by CAIRO
         ctx.select_font_face('Sans')
         ctx.set_font_size(0.9*mean_height)  # em-square height is 90 pixels
         ctx.move_to( int((0.6*rect[0][0]+0.4*rect[1][0])), int((0.2*rect[0][1]+0.8*rect[1][1])) )  # move to point (x, y) = (10, 90)
@@ -298,25 +293,27 @@ def replace_text_single_image(fn, dataset_path):
     annotation_fn = os.path.join(dataset_path, 'simple_annotations', fn+'.json')
     with open(annotation_fn) as f:
         annotation = json.loads(f.read())
-    # read in numpy
+    #--- read images in multiple formats (due to Cairo)
+    # - read img in numpy
     img = cv2.imread(os.path.join(dataset_path, 'images', fn))
-    # read in binary for OCR
+    # - read img in binary for OCR
     img_bin_data = None
     with open(os.path.join(dataset_path, 'images', fn), "rb") as f:
         img_bin_data = f.read()
-    # read for cairo
+    # - read for cairo
     surface = cairo.ImageSurface.create_from_png(os.path.join(dataset_path, 'images', fn))
     ctx = cairo.Context(surface)
+    #---
+    if is_visualize:
+        cv2.imshow("img", img)
+        cv2.waitKey(1)
+
     # mask for inpainting
     mask = np.zeros(img.shape[:-1], dtype=img.dtype)
     replacement_texts = []
     rects = []
 
-    if is_visualize:
-        cv2.imshow("img", img)
-        cv2.waitKey(1)
-
-    #---- generate text mask
+    #--- generate text mask
     # # Appr 1. generating text mask - approach 1
     # simple_mask(mask, rects, replacement_texts, img, annotation)
     #
@@ -340,7 +337,6 @@ def replace_text_single_image(fn, dataset_path):
         cv2.waitKey(1)
     #
     put_text_in_rects(img_result, rects, replacement_texts, img, fn)
-
 
 
 if __name__ == '__main__':
