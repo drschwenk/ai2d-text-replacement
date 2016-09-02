@@ -29,36 +29,21 @@ def crop_with_safe_pad(img, rect, pad=0):
 
 
 def crop_with_tight_box_by_ocr(img, rect, pad=0):
-    start_y = max(rect[0][1]-pad, 0)
-    start_x = max(rect[0][0]-pad, 0)
-    return img[start_y:rect[1][1]+pad, start_x:rect[1][0]+pad, :]  # python is insensitve to outside indexing
+    # todo: implement
+    pass
 
 
-def put_homogeneous_patch(img, rect, majority_color, pad=0):
+def put_homogeneous_patch(img, rect, majority_color, pad=0, do_perturb=False):
     """
     this function modifies the img argument
-    :param img:
-    :param rect:
-    :param majority_color:
-    :param pad:
-    :return:
     """
+    # 1. replace patch with homogeneous color
     start_y = max(rect[0][1]-pad, 0)
     start_x = max(rect[0][0]-pad, 0)
-    img[start_y:rect[1][1]+pad, start_x:rect[1][0]+pad, :] = majority_color  # python is insensitve to outside indexing
-
-
-def put_homogeneous_patch_with_perturbation(img, rect, majority_color, pad=0):
-    """
-    this function modifies the img argument
-    :param img:
-    :param rect:
-    :param majority_color:
-    :param pad:
-    :return:
-    """
-    start_y = max(rect[0][1]-pad, 0)
-    start_x = max(rect[0][0]-pad, 0)
+    if not do_perturb:
+        img[start_y:rect[1][1]+pad, start_x:rect[1][0]+pad, :] = majority_color  # python is insensitve to outside indexing
+        return
+    # 2. replace patch with perturbed color (use start_x and start_y)
     end_y = min(rect[1][1]+pad, img.shape[0])
     end_x = min(rect[1][0]+pad, img.shape[1])
     #
@@ -235,7 +220,7 @@ def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, an
         # 2. modify img with homogeneous color
         # put_homogeneous_patch(img, rect, majority_color, 3)
         put_homogeneous_patch_with_tight_bb(img, rect, majority_color, 10)
-        # put_homogeneous_patch_with_perturbation(img, rect, majority_color, 3)
+        # put_homogeneous_patch(img, rect, majority_color, 3, do_perturbe=True)
     # restore all blob and arrows (if the text is inside the blob, it is bad)
     mask_temp = np.zeros(img.shape, dtype=np.uint8)
     for blob_key in annotation['blobs']:
