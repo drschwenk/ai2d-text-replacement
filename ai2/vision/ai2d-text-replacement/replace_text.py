@@ -22,6 +22,19 @@ is_visualize = False
 target_rels = ['intraObjectLinkage', 'intraObjectRegionLabel', 'intraObjectLabel', 'intraObjectTextLinkage']
 
 
+
+class Rect_attribute:
+    is_easy = False
+    replacing_color = (0,0,0)
+    bb = []
+    tight_bb = []
+    text_org = None
+    text_to_replace = None
+
+    def __init__(self):
+        pass
+
+
 def crop_with_safe_pad(img, rect, pad=0):
     start_y = max(rect[0][1]-pad, 0)
     start_x = max(rect[0][0]-pad, 0)
@@ -121,31 +134,7 @@ def mask_with_tight_bb(mask, rects, img_bin_data, replacement_texts, img, annota
             cv2.waitKey(1)
 
 
-def simple_mask_wo_arrow(mask, rects, replacement_texts, img, annotation):
-    text_annotations = annotation['text']  # text regions
-    for ta in text_annotations:
-        rect = text_annotations[ta]['rectangle']
-        replacement_text = text_annotations[ta]['replacementText']
-        #
-        replacement_texts.append(replacement_text)
-        rects.append(rect)
-        #
-        cropped_img = img[rect[0][1]:rect[1][1], rect[0][0]:rect[1][0]]
-        if is_visualize:
-            cv2.imshow("cropped", cropped_img)
-            cv2.waitKey(1)
-        mask[rect[0][1]:rect[1][1], rect[0][0]:rect[1][0]] = 255
-    # exclude arrow
-    for arrow_key in annotation['arrows']:
-        arrow_polygon = annotation['arrows'][arrow_key]['polygon']
-        mask = cv2.fillConvexPoly(mask, np.array(arrow_polygon, dtype=np.int32), (0))
-    if is_visualize:
-        cv2.imshow("mask wo arrow", mask)
-        cv2.waitKey(1)
-
-
-def get_tight_bb_with_ocr(img, rect, pad=0):
-    patch = crop_with_safe_pad(img, rect, pad)
+def get_tight_bb_with_ocr(patch, pad=0):
     patch_fn = './temp_patch_%d.png' % int(np.random.rand()*100)
     cv2.imwrite(patch_fn, patch)
     #-- read in binary for OCR to get tight bb
@@ -159,7 +148,6 @@ def get_tight_bb_with_ocr(img, rect, pad=0):
     #
     if res.status_code != 200:
         print("received error process ocr detections [%s]: %s" % (res.status_code, res.content))
-
     res.raise_for_status()
     api_detections = res.json()
     #
@@ -168,37 +156,25 @@ def get_tight_bb_with_ocr(img, rect, pad=0):
         rect_ = [[detection['rectangle'][0]['x'], detection['rectangle'][0]['y']],
                 [detection['rectangle'][1]['x'], detection['rectangle'][1]['y']]]
         rects.append(rect_)
-    return patch, rects
+    return rects
 
 
-def put_homogeneous_patch_with_tight_bb(img, rect, majority_color, pad=0):
-    patch, patch_rects = get_tight_bb_with_ocr(img, rect, pad)
-    for rect_ in patch_rects:
-        put_homogeneous_patch(patch, rect_, majority_color, 0)
-    #--
-    # modify the patch back
-    start_y = max(rect[0][1]-pad, 0)
-    start_x = max(rect[0][0]-pad, 0)
-    img[start_y:rect[1][1]+pad, start_x:rect[1][0]+pad, :] = patch
-
-
-def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, annotation, cropping_func_ptr):
-    img_org = img.copy()
+def get_rects_to_replace(img, annotation, cropping_func_ptr):
+    rects = []
     text_annotations = annotation['text']  # text regions
     for i, ta in enumerate(text_annotations):
         if not is_this_text_in_relationship(annotation['relationships'], ta, target_rels):
             continue
-        print("%s [%s] has the relationship" % (ta, text_annotations[ta]['value']))
+        rect_attr = Rect_attribute()
         rect = text_annotations[ta]['rectangle']
-        replacement_text = text_annotations[ta]['replacementText']
-
-        # 1. determine if each patch's background is homogeneous color by histogram magnitude
+        # crop the annotated rectangle first
         # img_cropped = crop_with_safe_pad(img, rect, 10)
         img_cropped = cropping_func_ptr(img, rect, 10)
         #
         if is_visualize:
             cv2.imshow("cropped", img_cropped)
             cv2.waitKey(1)
+        #-- 1. determine if each patch's background is homogeneous color by histogram magnitude
         # - K-means
         img_array = img_cropped.reshape((img_cropped.shape[0] * img_cropped.shape[1], 3))
         clt = KMeans(n_clusters=5)
@@ -208,19 +184,44 @@ def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, an
         majority_hist_idx = np.argmax(hist)
         majority_color = clt.cluster_centers_[majority_hist_idx]
         print("[%d-th patch] hist on majority: %f" % (i, hist[majority_hist_idx]), majority_color)
+        # determine the patch is easy or not (heuristic criterion)
         is_easy = False
         if hist[majority_hist_idx] > 0.5:
             is_easy = True
+        # assigning the
+        rect_attr.bb = rect
+        # todo: compute tight bb (by assuming there is only one tight bb)
+        rect_attr.is_easy = is_easy
+        rect_attr.text_org = text_annotations[ta]['value']
+        rect_attr.text_to_replace = text_annotations[ta]['replacementText']
+        rect_attr.replacing_color = majority_color
         #
-        replacement_texts.append(replacement_text)
-        rects.append(rect)
-        #
-        if not is_easy:
+        rects.append(rect_attr)
+    return rects
+
+
+def get_mask_wo_arrows_and_blobs(rects, img, annotation):
+    mask = np.zeros(img.shape[:-1], dtype=img.dtype)
+    for rect_attr in rects:
+        if rect_attr.is_easy:
+            rect = rect_attr.bb
             mask[rect[0][1]:rect[1][1], rect[0][0]:rect[1][0]] = 255  # todo: change it to a function call
-        # 2. modify img with homogeneous color
-        # put_homogeneous_patch(img, rect, majority_color, 3)
-        put_homogeneous_patch_with_tight_bb(img, rect, majority_color, 10)
-        # put_homogeneous_patch(img, rect, majority_color, 3, do_perturbe=True)
+    # exclude all arrow and blob
+    for arrow_key in annotation['arrows']:
+        arrow_polygon = annotation['arrows'][arrow_key]['polygon']
+        mask = cv2.fillConvexPoly(mask, np.array(arrow_polygon, dtype=np.int32), (0))
+    if is_visualize:
+        cv2.imshow("mask wo arrow", mask)
+        cv2.waitKey(1)
+    return mask
+
+
+def put_homo_patch_wo_arrow(mask, rects, img, annotation):
+    img_org = img.copy()
+    for rect_attr in rects:
+        rect = rect_attr.bb
+        majority_color = rect_attr.replacing_color
+        put_homogeneous_patch(img, rect, majority_color, 10)
     # restore all blob and arrows (if the text is inside the blob, it is bad)
     mask_temp = np.zeros(img.shape, dtype=np.uint8)
     for blob_key in annotation['blobs']:
@@ -237,29 +238,23 @@ def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, an
         cv2.imshow('removed', img)
         cv2.waitKey(1)
 
-    # todo: separate the code here
-
-    # exclude all arrow and blob
-    for arrow_key in annotation['arrows']:
-        arrow_polygon = annotation['arrows'][arrow_key]['polygon']
-        mask = cv2.fillConvexPoly(mask, np.array(arrow_polygon, dtype=np.int32), (0))
-    if is_visualize:
-        cv2.imshow("mask wo arrow", mask)
-        cv2.waitKey(1)
 
 
-def put_text_in_rects(img_result, rects, replacement_texts, img, fn):
+def put_text_in_rects(img_result, rects, img, fn):
     fn_temp = "./temp_%d.png" % int(np.random.rand()*10000)
     cv2.imwrite(fn_temp, img_result * 255)
     surface = cairo.ImageSurface.create_from_png(fn_temp)
     ctx = cairo.Context(surface)
     os.remove(fn_temp)
-    # figuring out text box size
+    # figuring out text box size by averaging all text box sizes
     heights = []
-    for i, rect in enumerate(rects):
+    for rect_attr in rects:
+        rect = rect_attr.bb
         heights.append(rect[1][1] - rect[0][1])
     mean_height = np.median(heights)
-    for i, rect in enumerate(rects):
+    #
+    for rect_attr in rects:
+        rect = rect_attr.bb
         img_cropped = crop_with_safe_pad(img, rect, 0)
         img_array = img_cropped.reshape((img_cropped.shape[0] * img_cropped.shape[1], 3))
         if img_array.shape[0] == 0:
@@ -283,7 +278,7 @@ def put_text_in_rects(img_result, rects, replacement_texts, img, fn):
         ctx.set_font_size(0.9*mean_height)  # em-square height is 90 pixels
         ctx.move_to( int((0.6*rect[0][0]+0.4*rect[1][0])), int((0.2*rect[0][1]+0.8*rect[1][1])) )  # move to point (x, y) = (10, 90)
         ctx.set_source_rgb(text_color[0], text_color[1], text_color[2])  # yellow
-        ctx.show_text(replacement_texts[i])
+        ctx.show_text(rect_attr.text_to_replace)
     #
     ctx.stroke()  # commit to surface
     surface.write_to_png('./replaced/'+ fn)  # write to file
@@ -308,11 +303,8 @@ def replace_text_single_image(fn, dataset_path):
         cv2.imshow("img", img)
         cv2.waitKey(1)
 
-    # mask for inpainting
-    mask = np.zeros(img.shape[:-1], dtype=img.dtype)
-    replacement_texts = []
-    rects = []
-
+    # 1. remove texts
+    rects = get_rects_to_replace(img, annotation, crop_with_safe_pad)
     #--- generate text mask
     # # Appr 1. generating text mask - approach 1
     # simple_mask(mask, rects, replacement_texts, img, annotation)
@@ -324,7 +316,8 @@ def replace_text_single_image(fn, dataset_path):
     # simple_mask_wo_arrow(mask, rects, replacement_texts, img, annotation)
 
     # Appr 4. generating text mask only for complicated regions
-    simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, annotation, crop_with_safe_pad)
+    mask = get_mask_wo_arrows_and_blobs(rects, img, annotation)  # compute mask for inpainting
+    put_homo_patch_wo_arrow(mask, rects, img, annotation, crop_with_safe_pad)
 
     # # Appr 5. generating tight text mask only for complicated regions
     # simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, annotation, crop_with_tight_box_by_ocr)
@@ -338,8 +331,9 @@ def replace_text_single_image(fn, dataset_path):
     if is_visualize:
         cv2.imshow("removed", img_result)
         cv2.waitKey(1)
-    #
-    put_text_in_rects(img_result, rects, replacement_texts, img, fn)
+
+    # 2. put text on the cleaned up image
+    put_text_in_rects(img_result, rects, img, fn)
 
 
 if __name__ == '__main__':
@@ -347,11 +341,11 @@ if __name__ == '__main__':
     # read list of images in GND category annotation
     with open(os.path.join(dataset_path, "categories.json")) as f:
         file_list = json.loads(f.read())
-    #
-    parallel.multimap(replace_text_single_image, file_list, dataset_path)
+    # #
+    # parallel.multimap(replace_text_single_image, file_list, dataset_path)
 
     # for fn in file_list:
     #     replace_text_single_image(fn, dataset_path)
 
-    # fn = '2089.png'
-    # replace_text_single_image(fn, dataset_path)
+    fn = '1450.png'
+    replace_text_single_image(fn, dataset_path)
