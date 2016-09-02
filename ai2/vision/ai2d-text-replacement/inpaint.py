@@ -16,7 +16,7 @@ from kmedoids import cluster
 from low_rank import low_rank
 
 
-is_visualize = True
+is_visualize = False
 target_rels = ['intraObjectLinkage', 'intraObjectRegionLabel', 'intraObjectLabel', 'intraObjectTextLinkage']
 
 
@@ -38,6 +38,27 @@ def put_homogeneous_patch(img, rect, majority_color, pad=0):
     start_y = max(rect[0][1]-pad, 0)
     start_x = max(rect[0][0]-pad, 0)
     img[start_y:rect[1][1]+pad, start_x:rect[1][0]+pad, :] = majority_color  # python is insensitve to outside indexing
+
+
+def put_homogeneous_patch_with_perturbation(img, rect, majority_color, pad=0):
+    """
+    this function modifies the img argument
+    :param img:
+    :param rect:
+    :param majority_color:
+    :param pad:
+    :return:
+    """
+    start_y = max(rect[0][1]-pad, 0)
+    start_x = max(rect[0][0]-pad, 0)
+    end_y = min(rect[1][1]+pad, img.shape[0])
+    end_x = min(rect[1][0]+pad, img.shape[1])
+    #
+    replacing_patch = np.ones((end_y-start_y, end_x-start_x, img.shape[2]), dtype='uint8')
+    for yy in range(0,replacing_patch.shape[0]):
+        for xx in range(0,replacing_patch.shape[1]):
+            replacing_patch[yy,xx,:] = np.minimum(np.maximum(majority_color + 5*(np.random.rand(1,3)-0.5), 0), 255).astype('uint8')
+    img[start_y:rect[1][1]+pad, start_x:rect[1][0]+pad, :] = replacing_patch  # python is insensitve to outside indexing
 
 
 def centroid_histogram(clt):
@@ -99,8 +120,9 @@ def mask_with_tight_bb(mask, rects, img_bin_data, replacement_texts, img, annota
             rect = [[detection['rectangle'][0]['x'], detection['rectangle'][0]['y']],
                     [detection['rectangle'][1]['x'], detection['rectangle'][1]['y']]]
             mask[rect[0][1]:rect[1][1], rect[0][0]:rect[1][0]] = 255
-            cv2.imshow('patch', img[rect[0][1]:rect[1][1], rect[0][0]:rect[1][0], :])
-            cv2.waitKey(1)
+            if is_visualize:
+                cv2.imshow('patch', img[rect[0][1]:rect[1][1], rect[0][0]:rect[1][0], :])
+                cv2.waitKey(1)
         if is_visualize:
             cv2.imshow("mask", mask)
             cv2.waitKey(1)
@@ -124,8 +146,9 @@ def simple_mask_wo_arrow(mask, rects, replacement_texts, img, annotation):
     for arrow_key in annotation['arrows']:
         arrow_polygon = annotation['arrows'][arrow_key]['polygon']
         mask = cv2.fillConvexPoly(mask, np.array(arrow_polygon, dtype=np.int32), (0))
-    cv2.imshow("mask wo arrow", mask)
-    cv2.waitKey(1)
+    if is_visualize:
+        cv2.imshow("mask wo arrow", mask)
+        cv2.waitKey(1)
 
 
 def put_homogeneous_patch_with_tight_bb(img, rect, majority_color, pad=0):
@@ -200,8 +223,9 @@ def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, an
         if not is_easy:
             mask[rect[0][1]:rect[1][1], rect[0][0]:rect[1][0]] = 255  # todo: change it to a function call
         # 2. modify img with homogeneous color
-        put_homogeneous_patch(img, rect, majority_color, 3)
+        # put_homogeneous_patch(img, rect, majority_color, 3)
         # put_homogeneous_patch_with_tight_bb(img, rect, majority_color, 10)
+        put_homogeneous_patch_with_perturbation(img, rect, majority_color, 3)
     # restore all blob and arrows (if the text is inside the blob, it is bad)
     mask_temp = np.zeros(img.shape, dtype=np.uint8)
     for blob_key in annotation['blobs']:
@@ -224,13 +248,14 @@ def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, an
     for arrow_key in annotation['arrows']:
         arrow_polygon = annotation['arrows'][arrow_key]['polygon']
         mask = cv2.fillConvexPoly(mask, np.array(arrow_polygon, dtype=np.int32), (0))
-    cv2.imshow("mask wo arrow", mask)
-    cv2.waitKey(1)
+    if is_visualize:
+        cv2.imshow("mask wo arrow", mask)
+        cv2.waitKey(1)
 
 
-def put_text_in_rects(img_result, rects, replacement_texts, img):
+def put_text_in_rects(img_result, rects, replacement_texts, img, fn):
     img_result_text_replaced = img_result.copy()
-    fn_temp = "./temp_%d.png" % int(np.random.rand()*100)
+    fn_temp = "./temp_%d.png" % int(np.random.rand()*10000)
     cv2.imwrite(fn_temp, img_result * 255)
     surface = cairo.ImageSurface.create_from_png(fn_temp)
     ctx = cairo.Context(surface)
@@ -243,6 +268,8 @@ def put_text_in_rects(img_result, rects, replacement_texts, img):
     for i, rect in enumerate(rects):
         img_cropped = crop_with_safe_pad(img, rect, 0)
         img_array = img_cropped.reshape((img_cropped.shape[0] * img_cropped.shape[1], 3))
+        if img_array.shape[0] == 0:
+            continue
         clt = KMeans(n_clusters = 3)
         clt.fit(img_array)
         hist = centroid_histogram(clt)
@@ -264,7 +291,7 @@ def put_text_in_rects(img_result, rects, replacement_texts, img):
         ctx.show_text(replacement_texts[i])
     #
     ctx.stroke()  # commit to surface
-    surface.write_to_png('./replaced/'+fn)  # write to file
+    surface.write_to_png('./replaced/'+ fn)  # write to file
 
 
 def replace_text_single_image(fn, dataset_path):
@@ -312,7 +339,7 @@ def replace_text_single_image(fn, dataset_path):
         cv2.imshow("removed", img_result)
         cv2.waitKey(1)
     #
-    put_text_in_rects(img_result, rects, replacement_texts, img)
+    put_text_in_rects(img_result, rects, replacement_texts, img, fn)
 
 
 
@@ -321,11 +348,11 @@ if __name__ == '__main__':
     # read list of images in GND category annotation
     with open(os.path.join(dataset_path, "categories.json")) as f:
         file_list = json.loads(f.read())
-    # #
+    #
     parallel.multimap(replace_text_single_image, file_list, dataset_path)
 
     # for fn in file_list:
     #     replace_text_single_image(fn, dataset_path)
 
-    # fn = '4035.png'
+    # fn = '2089.png'
     # replace_text_single_image(fn, dataset_path)
