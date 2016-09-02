@@ -28,6 +28,12 @@ def crop_with_safe_pad(img, rect, pad=0):
     return img[start_y:rect[1][1]+pad, start_x:rect[1][0]+pad, :]  # python is insensitve to outside indexing
 
 
+def crop_with_tight_box_by_ocr(img, rect, pad=0):
+    start_y = max(rect[0][1]-pad, 0)
+    start_x = max(rect[0][0]-pad, 0)
+    return img[start_y:rect[1][1]+pad, start_x:rect[1][0]+pad, :]  # python is insensitve to outside indexing
+
+
 def put_homogeneous_patch(img, rect, majority_color, pad=0):
     """
     this function modifies the img argument
@@ -153,7 +159,7 @@ def simple_mask_wo_arrow(mask, rects, replacement_texts, img, annotation):
         cv2.waitKey(1)
 
 
-def put_homogeneous_patch_with_tight_bb(img, rect, majority_color, pad=0):
+def get_tight_bb_with_ocr(img, rect, pad=0):
     patch = crop_with_safe_pad(img, rect, pad)
     patch_fn = './temp_patch_%d.png' % int(np.random.rand()*100)
     cv2.imwrite(patch_fn, patch)
@@ -172,18 +178,26 @@ def put_homogeneous_patch_with_tight_bb(img, rect, majority_color, pad=0):
     res.raise_for_status()
     api_detections = res.json()
     #
+    rects = []
     for detection in api_detections['detections']:
         rect_ = [[detection['rectangle'][0]['x'], detection['rectangle'][0]['y']],
                 [detection['rectangle'][1]['x'], detection['rectangle'][1]['y']]]
-        put_homogeneous_patch(patch, rect, majority_color, 0)
+        rects.append(rect_)
+    return patch, rects
+
+
+def put_homogeneous_patch_with_tight_bb(img, rect, majority_color, pad=0):
+    patch, patch_rects = get_tight_bb_with_ocr(img, rect, pad)
+    for rect_ in patch_rects:
+        put_homogeneous_patch(patch, rect_, majority_color, 0)
     #--
-    # modify image back
+    # modify the patch back
     start_y = max(rect[0][1]-pad, 0)
     start_x = max(rect[0][0]-pad, 0)
     img[start_y:rect[1][1]+pad, start_x:rect[1][0]+pad, :] = patch
 
 
-def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, annotation):
+def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, annotation, cropping_func_ptr):
     img_org = img.copy()
     text_annotations = annotation['text']  # text regions
     for i, ta in enumerate(text_annotations):
@@ -194,7 +208,8 @@ def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, an
         replacement_text = text_annotations[ta]['replacementText']
 
         # 1. determine if each patch's background is homogeneous color by histogram magnitude
-        img_cropped = crop_with_safe_pad(img, rect, 10)
+        # img_cropped = crop_with_safe_pad(img, rect, 10)
+        img_cropped = cropping_func_ptr(img, rect, 10)
         #
         if is_visualize:
             cv2.imshow("cropped", img_cropped)
@@ -219,8 +234,8 @@ def simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, an
             mask[rect[0][1]:rect[1][1], rect[0][0]:rect[1][0]] = 255  # todo: change it to a function call
         # 2. modify img with homogeneous color
         # put_homogeneous_patch(img, rect, majority_color, 3)
-        # put_homogeneous_patch_with_tight_bb(img, rect, majority_color, 10)
-        put_homogeneous_patch_with_perturbation(img, rect, majority_color, 3)
+        put_homogeneous_patch_with_tight_bb(img, rect, majority_color, 10)
+        # put_homogeneous_patch_with_perturbation(img, rect, majority_color, 3)
     # restore all blob and arrows (if the text is inside the blob, it is bad)
     mask_temp = np.zeros(img.shape, dtype=np.uint8)
     for blob_key in annotation['blobs']:
@@ -316,7 +331,7 @@ def replace_text_single_image(fn, dataset_path):
     #--- generate text mask
     # # Appr 1. generating text mask - approach 1
     # simple_mask(mask, rects, replacement_texts, img, annotation)
-    #
+
     # # Appr 2. generating text mask - approach 2: use tight BB using OCR API
     # mask_with_tight_bb(mask, rects, img_bin_data, replacement_texts, img, annotation)
 
@@ -324,7 +339,10 @@ def replace_text_single_image(fn, dataset_path):
     # simple_mask_wo_arrow(mask, rects, replacement_texts, img, annotation)
 
     # Appr 4. generating text mask only for complicated regions
-    simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, annotation)
+    simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, annotation, crop_with_safe_pad)
+
+    # # Appr 5. generating tight text mask only for complicated regions
+    # simple_mask_wo_arrow_with_homo_patch(mask, rects, replacement_texts, img, annotation, crop_with_tight_box_by_ocr)
     # ----
 
     # inpaint with bi-harmonic algorithm
