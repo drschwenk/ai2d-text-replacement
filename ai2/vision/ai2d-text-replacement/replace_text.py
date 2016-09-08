@@ -141,7 +141,7 @@ def get_rects_to_replace(fn, img, annotation, cropping_func_ptr):
         # find the majority color
         majority_hist_idx = np.argmax(hist)
         majority_color = clt.cluster_centers_[majority_hist_idx]
-        print("[%s's %d-th patch] majority in histogram: %f. Majority color: " % (fn, i, hist[majority_hist_idx]), majority_color)
+        print("[%s's %d-th patch] majority in histogram: %f. Majority color:" % (fn, i, hist[majority_hist_idx]), majority_color)
         # determine the patch is easy or not (a heuristic criterion)
         if hist[majority_hist_idx] > 0.5:
             rect_attr.is_easy = True
@@ -196,11 +196,11 @@ def remove_rectangles(rects, img, use_tight_bb=False):
         else:
             rect = rect_attr.bb
         majority_color = rect_attr.replacing_color
-        pad_rect = [5,2]
+        pad_rect = [0,0] # [5,2]
         put_homogeneous_patch(img_cp, rect, (255,255,255), pad=pad_rect, do_perturb=False) # todo: revert this quick hack (make BG patch with white bg)
         # put rectangle as border
         pad_rect_np = np.array(pad_rect)
-        cv2.rectangle(img_cp, tuple(np.maximum(np.array(rect[0])-pad_rect_np, 0)), tuple(np.minimum(np.array(rect[1])+pad_rect_np, img_cp.shape[0:1])), (0,0,0), 1)
+        cv2.rectangle(img_cp, tuple(np.maximum(np.array(rect[0])-pad_rect_np, 0)), tuple(np.minimum(np.array(rect[1])+pad_rect_np, img_cp.shape[::-1][1:3])), (0,0,0), 1)
     return img_cp
 
 
@@ -227,6 +227,17 @@ def restore_arrow_blob(img_org, img_modified, annotation, restore_arrow=True, re
     return img
 
 
+def compute_center_text_start_coord(rect, font_height):
+    left_x = rect[0][0]  # left upper x
+    upper_y = rect[0][1]  # left upper y
+    right_x = rect[1][0]  # right lower x
+    lower_y = rect[1][1]  # right lower y
+    width = right_x - left_x
+    height = lower_y - upper_y
+    r_w = width-font_height  # remainder in width
+    h_w = height-font_height
+    return (int(left_x + r_w/2), int(lower_y - h_w/2))
+
 
 def put_text_in_rects(img_result, rects, img, fn):
     fn_temp = "./temp_%d.png" % int(np.random.rand()*10000)
@@ -244,7 +255,6 @@ def put_text_in_rects(img_result, rects, img, fn):
     for rect_attr in rects:
         rect = rect_attr.bb
         rect_heights = rect[1][1] - rect[0][1]
-        img_cropped, _ = crop_with_safe_pad(img, rect, 0)
         text_color = rect_attr.text_color
         # #- put text by opencv
         # img_result_text_replaced = cv2.putText(img_result_text_replaced, replacement_texts[i], (int((0.6*rect[0][0]+0.4*rect[1][0])), int((0.2*rect[0][1]+0.8*rect[1][1]))),
@@ -252,8 +262,16 @@ def put_text_in_rects(img_result, rects, img, fn):
 
         #- put text by CAIRO
         ctx.select_font_face('Sans')
-        ctx.set_font_size(0.9*rect_heights)  # em-square height is 90 pixels
-        ctx.move_to(int((0.7*rect[0][0]+0.3*rect[1][0])), int((0.1*rect[0][1]+0.9*rect[1][1])) )  # move to point (x, y)
+        font_height = 0.9*rect_heights
+        ctx.set_font_size(font_height)  # em-square height is 90 pixels
+        # ctx.move_to(int(0.5*rect[0][0]+0.5*rect[1][0]), int(0.1*rect[0][1]+0.9*rect[1][1]))  # move to point (x, y)
+
+        # start_coord = compute_center_text_start_coord(rect, font_height=font_height)
+        # ctx.move_to(start_coord[0], start_coord[1])  # move to point (x, y)
+
+        (x, y, width, height, dx, dy) = ctx.text_extents(rect_attr.text_to_replace)
+        ctx.move_to((rect[0][0]+rect[1][0])/2 - width/2, (rect[0][1]+rect[1][1])/2 + height/2)
+
         ctx.set_source_rgb(text_color[0], text_color[1], text_color[2])  # yellow
         ctx.show_text(rect_attr.text_to_replace)
     #
@@ -262,6 +280,8 @@ def put_text_in_rects(img_result, rects, img, fn):
 
 
 def replace_text_single_image(fn, dataset_path):
+    do_inpainting = False
+
     print("[%s] begins" % fn)
     annotation_fn = os.path.join(dataset_path, 'simple_annotations', fn+'.json')
     with open(annotation_fn) as f:
@@ -269,10 +289,6 @@ def replace_text_single_image(fn, dataset_path):
     #--- read images in multiple formats (due to Cairo)
     # - read img in numpy
     img = cv2.imread(os.path.join(dataset_path, 'images', fn))
-    # - read img in binary for OCR
-    img_bin_data = None
-    with open(os.path.join(dataset_path, 'images', fn), "rb") as f:
-        img_bin_data = f.read()
     # - read for cairo
     surface = cairo.ImageSurface.create_from_png(os.path.join(dataset_path, 'images', fn))
     ctx = cairo.Context(surface)
@@ -288,17 +304,21 @@ def replace_text_single_image(fn, dataset_path):
         return
 
     # 2. generating text mask only for complicated regions
-    mask = get_mask(rects, img, annotation, exclude_arrow=True, exclude_blob=False)
+    if do_inpainting:
+        mask = get_mask(rects, img, annotation, exclude_arrow=True, exclude_blob=False)
 
     # 3. put homogeneous patches (remove original text)
     img_modified = remove_rectangles(rects, img, use_tight_bb=False)
 
     # 4. restore arrow and blob region
-    img_result = restore_arrow_blob(img, img_modified, annotation, restore_arrow=True, restore_blob=False)
+    img_result = restore_arrow_blob(img, img_modified, annotation, restore_arrow=False, restore_blob=False)
 
-    # 4. inpaint with bi-harmonic algorithm
-    print("[%s] inpainting..." % fn)
-    img_result = inpaint.inpaint_biharmonic(img_result, mask, multichannel=True)
+    # # 4. inpaint with bi-harmonic algorithm
+    if do_inpainting:
+        print("[%s] inpainting..." % fn)
+        img_result = inpaint.inpaint_biharmonic(img_result, mask, multichannel=True)
+    else:
+        img_result = (img_result * 255).astype('uint8')
 
     if is_visualize:
         cv2.imshow("removed", img_result)
@@ -308,7 +328,7 @@ def replace_text_single_image(fn, dataset_path):
     print("[%s] putting text..." % fn)
     put_text_in_rects(img_result, rects, img, fn)
 
-
+    # finish
     print("[%s] done" % fn)
 
 
@@ -323,5 +343,5 @@ if __name__ == '__main__':
     # for fn in file_list:
     #     replace_text_single_image(fn, dataset_path)
 
-    fn = '4837.png'
+    fn = '4647.png' # '636.png' # '4837.png'
     replace_text_single_image(fn, dataset_path)
