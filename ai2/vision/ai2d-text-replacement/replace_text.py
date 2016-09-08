@@ -322,11 +322,11 @@ if __name__ == '__main__':
     # read list of images in GND category annotation
     with open(os.path.join(dataset_path, "categories.json")) as f:
         file_list = json.loads(f.read())
-    # #
-    # parallel.multimap(replace_text_single_image, file_list, dataset_path)
+    #
+    parallel.multimap(replace_text_single_image, file_list, dataset_path)
 
     # for fn in file_list:
     #     replace_text_single_image(fn, dataset_path)
 
-    fn = '4647.png' # '636.png' # '4837.png'
-    replace_text_single_image(fn, dataset_path)
+    # fn = '4647.png' # '636.png' # '4837.png'
+    # replace_text_single_image(fn, dataset_path)
