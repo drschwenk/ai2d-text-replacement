@@ -196,7 +196,7 @@ def remove_rectangles(rects, img, use_tight_bb=False):
         else:
             rect = rect_attr.bb
         majority_color = rect_attr.replacing_color
-        pad_rect = [0,0] # [5,2]
+        pad_rect = [5,2]
         put_homogeneous_patch(img_cp, rect, (255,255,255), pad=pad_rect, do_perturb=False) # todo: revert this quick hack (make BG patch with white bg)
         # put rectangle as border
         pad_rect_np = np.array(pad_rect)
@@ -227,18 +227,6 @@ def restore_arrow_blob(img_org, img_modified, annotation, restore_arrow=True, re
     return img
 
 
-def compute_center_text_start_coord(rect, font_height):
-    left_x = rect[0][0]  # left upper x
-    upper_y = rect[0][1]  # left upper y
-    right_x = rect[1][0]  # right lower x
-    lower_y = rect[1][1]  # right lower y
-    width = right_x - left_x
-    height = lower_y - upper_y
-    r_w = width-font_height  # remainder in width
-    h_w = height-font_height
-    return (int(left_x + r_w/2), int(lower_y - h_w/2))
-
-
 def put_text_in_rects(img_result, rects, img, fn):
     fn_temp = "./temp_%d.png" % int(np.random.rand()*10000)
     cv2.imwrite(fn_temp, img_result * 255)
@@ -265,9 +253,6 @@ def put_text_in_rects(img_result, rects, img, fn):
         font_height = 0.9*rect_heights
         ctx.set_font_size(font_height)  # em-square height is 90 pixels
         # ctx.move_to(int(0.5*rect[0][0]+0.5*rect[1][0]), int(0.1*rect[0][1]+0.9*rect[1][1]))  # move to point (x, y)
-
-        # start_coord = compute_center_text_start_coord(rect, font_height=font_height)
-        # ctx.move_to(start_coord[0], start_coord[1])  # move to point (x, y)
 
         (x, y, width, height, dx, dy) = ctx.text_extents(rect_attr.text_to_replace)
         ctx.move_to((rect[0][0]+rect[1][0])/2 - width/2, (rect[0][1]+rect[1][1])/2 + height/2)
