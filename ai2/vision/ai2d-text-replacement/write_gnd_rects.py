@@ -29,7 +29,7 @@ def write_gnd_rects_single_image(fn, dataset_path, output_path):
         rect = text_annotations[ta]['rectangle']
         # pad rect
         rect[0] = np.maximum(np.array(rect[0]) - pad_rect_np, 0)
-        rect[1] = np.minimum(np.array(rect[1]) + pad_rect_np, im_shape[::-1][1:3]-1)
+        rect[1] = np.minimum(np.array(rect[1]) + pad_rect_np, np.array(im_shape[::-1][1:3])-1)
         #
         start_x = int(rect[0][0])
         start_y = int(rect[0][1])
