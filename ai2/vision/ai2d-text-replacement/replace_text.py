@@ -23,6 +23,37 @@ is_visualize = False
 target_rels = ['intraObjectLinkage', 'intraObjectRegionLabel', 'intraObjectLabel', 'intraObjectTextLinkage']
 
 
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def init_logging(log_format='default', log_level='debug'):
+    if log_level == 'debug':
+        base_logging_level = logging.DEBUG
+    elif log_level == 'info':
+        base_logging_level = logging.INFO
+    elif log_level == 'warning':
+        base_logging_level = logging.WARNING
+    else:
+        raise TypeError('%s is an incorrect logging type!', log_level)
+    if len(logger.handlers) == 0:
+        ch = logging.StreamHandler()
+        logger.setLevel(base_logging_level)
+        ch.setLevel(base_logging_level)
+        if log_format == 'default':
+            formatter = logging.Formatter(fmt='%(asctime)s: %(levelname)s: %(message)s \t[%(filename)s: %(lineno)d]', datefmt='%m/%d %I:%M:%S')
+        elif log_format == 'defaultMilliseconds':
+            formatter = logging.Formatter(fmt='%(asctime)s: %(levelname)s: %(message)s \t[%(filename)s: %(lineno)d]')
+        else:
+            formatter = logging.Formatter(fmt=log_format, datefmt='%m/%d %I:%M:%S')
+
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
+
+
+
 class Rect_attribute:
     is_easy = False
     replacing_color = (0,0,0)
@@ -66,7 +97,7 @@ def put_homogeneous_patch(img, rect, majority_color, pad=0, do_perturb=False):
     for yy in range(0,replacing_patch.shape[0]):
         for xx in range(0,replacing_patch.shape[1]):
             replacing_patch[yy,xx,:] = np.minimum(np.maximum(majority_color + 5*(np.random.rand(1,3)-0.5), 0), 255).astype('uint8')
-    img[start_y:rect[1][1]+pad_y, start_x:rect[1][0]+pad_x, :] = replacing_patch  # python is insensitve to outside indexing
+    img[start_y:end_y, start_x:end_x, :] = replacing_patch  # python is insensitve to outside indexing
 
 
 def centroid_histogram(clt):
@@ -109,7 +140,7 @@ def get_tight_bb_with_ocr(patch):
     scores = []
     for detection in api_detections['detections']:
         rect_ = [[detection['rectangle'][0]['x'], detection['rectangle'][0]['y']],
-                [detection['rectangle'][1]['x'], detection['rectangle'][1]['y']]]
+                 [detection['rectangle'][1]['x'], detection['rectangle'][1]['y']]]
         rects.append(rect_)
         scores.append(detection['score'])
     # sort by the score
@@ -201,7 +232,10 @@ def remove_rectangles(rects, img, use_tight_bb=False, do_perturb=False):
         put_homogeneous_patch(img_cp, rect, (255,255,255), pad=pad_rect, do_perturb=do_perturb) # todo: revert this quick hack (make BG patch with white bg)
         # put rectangle as border
         pad_rect_np = np.array(pad_rect)
-        cv2.rectangle(img_cp, tuple(np.maximum(np.array(rect[0])-pad_rect_np, 0)), tuple(np.minimum(np.array(rect[1])+pad_rect_np, img_cp.shape[::-1][1:3])), (0,0,0), 1)
+        cv2.rectangle(img_cp,
+                      tuple(np.maximum(np.array(rect[0])-pad_rect_np, 0)),
+                      tuple(np.minimum(np.array(rect[1])+pad_rect_np, np.array(img_cp.shape[::-1][1:3])-1)),
+                      (0,0,0), 1)
     return img_cp
 
 
@@ -271,7 +305,7 @@ def put_text_in_rects(img_result, rects, img, fn):
 def replace_text_single_image(fn, dataset_path):
     do_inpainting = False  # todo: do not make the parameters this much isolated
 
-    print("[%s] begins" % fn)
+    logging.info("[%s] begins" % fn)
     annotation_fn = os.path.join(dataset_path, 'annotations', fn+'.json')
     with open(annotation_fn) as f:
         annotation = json.loads(f.read())
@@ -315,11 +349,14 @@ def replace_text_single_image(fn, dataset_path):
     put_text_in_rects(img_result, rects, img, fn)
 
     # finish
-    print("[%s] done" % fn)
+    logging.info("[%s] done" % fn)
 
 
 if __name__ == '__main__':
     dataset_path = "./ai2d"
+
+    init_logging()
+
     # read list of images in GND category annotation
     with open(os.path.join(dataset_path, "categories.json")) as f:
         file_list = json.loads(f.read())

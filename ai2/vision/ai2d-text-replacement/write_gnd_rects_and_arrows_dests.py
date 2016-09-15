@@ -64,6 +64,23 @@ def write_gnd_rects_single_image(fn, dataset_path, output_path):
             print(dests)
         out_dict = {}
         out_dict['text'] = text_annotations[ta]['value'].lower()
+        out_dict['replacementText'] = text_annotations[ta]['replacementText']
+        #--- rect
+        rect = text_annotations[ta]['rectangle']
+        # pad rect
+        rect[0] = np.maximum(np.array(rect[0]) - pad_rect_np, 0)
+        rect[1] = np.minimum(np.array(rect[1]) + pad_rect_np, np.array(im_shape[::-1][1:3])-1)
+        #
+        start_x = int(rect[0][0])
+        start_y = int(rect[0][1])
+        end_x = int(rect[1][0])
+        end_y = int(rect[1][1])
+        width = end_x - start_x
+        height = end_y - start_y
+        assert(width >= 0)
+        assert(height >= 0)
+        out_dict['rect'] = [start_x, start_y, width, height]
+        #---
         out_dict['destinations'] = dests
         gnd_vals.append(out_dict)
     # write back to the output file
@@ -83,7 +100,7 @@ def read_gnd_rects_single_image(fn, json_path):
 
 if __name__ == '__main__':
     dataset_path = "./ai2d"
-    output_path = './ai2d_arrow_json'
+    output_path = './ai2d_rect_arrow_dest_json'
     # read list of images in GND category annotation
     with open(os.path.join(dataset_path, "categories.json")) as f:
         file_list = json.loads(f.read())
