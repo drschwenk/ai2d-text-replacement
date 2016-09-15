@@ -20,17 +20,18 @@ def find_all_destinations_with_text(ta, annotation):
     """
     dests = []
     for rel in annotation['relationships']:
+        this_rel = annotation['relationships'][rel]
         arrow = None
-        if ta == rel['origin'] or ta == rel['destination']:
-            if 'connector' in annotation['relationships'][rel]:
-                arrow = annotation['relationships'][rel]['connector']
-            dest_name = annotation['relationships'][rel]['destination']
-            rel_type = annotation['relationships'][rel]['category']
+        if ta == this_rel['origin'] or ta == this_rel['destination']:
+            if 'connector' in this_rel:
+                arrow = annotation['arrows'][this_rel['connector']]['polygon']
+            dest_name = this_rel['destination']
+            rel_type = this_rel['category']
             if dest_name[0] == 'B':
                 dest_polygon = annotation['blobs'][dest_name]['polygon']
             else:
                 continue
-            out_dict = {'arrow': arrow, 'dest_polygon': dest_polygon, 'relationship_type': rel_type}
+            out_dict = {'arrow_polygon': arrow, 'dest_polygon': dest_polygon, 'relationship_type': rel_type}
             dests.append(out_dict)
     return dests
 
@@ -60,9 +61,7 @@ def write_gnd_rects_single_image(fn, dataset_path, output_path):
             continue
         dests = find_all_destinations_with_text(ta, annotation)
         if len(dests) > 1:
-            import pdb
-            pdb.set_trace()
-            print(arrows)
+            print(dests)
         out_dict = {}
         out_dict['text'] = text_annotations[ta]['value'].lower()
         out_dict['destinations'] = dests

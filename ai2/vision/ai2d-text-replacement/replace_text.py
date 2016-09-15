@@ -59,8 +59,8 @@ def put_homogeneous_patch(img, rect, majority_color, pad=0, do_perturb=False):
         img[start_y:rect[1][1]+pad_y, start_x:rect[1][0]+pad_x, :] = majority_color  # python is insensitve to outside indexing
         return
     # 2. replace patch with perturbed color (use start_x and start_y)
-    end_y = min(rect[1][1]+pad_y, img.shape[0])
-    end_x = min(rect[1][0]+pad_x, img.shape[1])
+    end_y = min(rect[1][1]+pad_y, img.shape[0]-1)
+    end_x = min(rect[1][0]+pad_x, img.shape[1]-1)
     #
     replacing_patch = np.ones((end_y-start_y, end_x-start_x, img.shape[2]), dtype='uint8')
     for yy in range(0,replacing_patch.shape[0]):
