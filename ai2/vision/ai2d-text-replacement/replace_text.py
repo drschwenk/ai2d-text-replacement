@@ -17,6 +17,7 @@ from low_rank import low_rank
 
 from parse_annotation import is_this_text_in_relationship
 
+# rect format: [[start_x, start_y], [end_x, end_y]]
 
 is_visualize = False
 target_rels = ['intraObjectLinkage', 'intraObjectRegionLabel', 'intraObjectLabel', 'intraObjectTextLinkage']
@@ -188,7 +189,7 @@ def get_mask(rects, img, annotation, exclude_arrow=False, exclude_blob=False):
     return mask
 
 
-def remove_rectangles(rects, img, use_tight_bb=False):
+def remove_rectangles(rects, img, use_tight_bb=False, do_perturb=False):
     img_cp = img.copy()
     for rect_attr in rects:
         if use_tight_bb:
@@ -197,7 +198,7 @@ def remove_rectangles(rects, img, use_tight_bb=False):
             rect = rect_attr.bb
         majority_color = rect_attr.replacing_color
         pad_rect = [5,2]
-        put_homogeneous_patch(img_cp, rect, (255,255,255), pad=pad_rect, do_perturb=False) # todo: revert this quick hack (make BG patch with white bg)
+        put_homogeneous_patch(img_cp, rect, (255,255,255), pad=pad_rect, do_perturb=do_perturb) # todo: revert this quick hack (make BG patch with white bg)
         # put rectangle as border
         pad_rect_np = np.array(pad_rect)
         cv2.rectangle(img_cp, tuple(np.maximum(np.array(rect[0])-pad_rect_np, 0)), tuple(np.minimum(np.array(rect[1])+pad_rect_np, img_cp.shape[::-1][1:3])), (0,0,0), 1)
@@ -228,6 +229,7 @@ def restore_arrow_blob(img_org, img_modified, annotation, restore_arrow=True, re
 
 
 def put_text_in_rects(img_result, rects, img, fn):
+    # - write and read for cairo
     fn_temp = "./temp_%d.png" % int(np.random.rand()*10000)
     cv2.imwrite(fn_temp, img_result * 255)
     surface = cairo.ImageSurface.create_from_png(fn_temp)
@@ -243,7 +245,9 @@ def put_text_in_rects(img_result, rects, img, fn):
     for rect_attr in rects:
         rect = rect_attr.bb
         rect_heights = rect[1][1] - rect[0][1]
-        text_color = rect_attr.text_color
+        # text_color = rect_attr.text_color
+        text_color = [0,0,0]
+
         # #- put text by opencv
         # img_result_text_replaced = cv2.putText(img_result_text_replaced, replacement_texts[i], (int((0.6*rect[0][0]+0.4*rect[1][0])), int((0.2*rect[0][1]+0.8*rect[1][1]))),
         #             cv2.FONT_HERSHEY_DUPLEX, 0.4/13.0*float(rect[1][1]-rect[0][1]), text_color)
@@ -265,19 +269,15 @@ def put_text_in_rects(img_result, rects, img, fn):
 
 
 def replace_text_single_image(fn, dataset_path):
-    do_inpainting = False
+    do_inpainting = False  # todo: do not make the parameters this much isolated
 
     print("[%s] begins" % fn)
-    annotation_fn = os.path.join(dataset_path, 'simple_annotations', fn+'.json')
+    annotation_fn = os.path.join(dataset_path, 'annotations', fn+'.json')
     with open(annotation_fn) as f:
         annotation = json.loads(f.read())
-    #--- read images in multiple formats (due to Cairo)
     # - read img in numpy
-    img = cv2.imread(os.path.join(dataset_path, 'images', fn))
-    # - read for cairo
-    surface = cairo.ImageSurface.create_from_png(os.path.join(dataset_path, 'images', fn))
-    ctx = cairo.Context(surface)
-    #---
+    imgfn = os.path.join(dataset_path, 'images', fn)
+    img = cv2.imread(imgfn)
     if is_visualize:
         cv2.imshow("img", img)
         cv2.waitKey(1)
@@ -286,6 +286,7 @@ def replace_text_single_image(fn, dataset_path):
     rects = get_rects_to_replace(fn, img, annotation, crop_with_safe_pad)
     if len(rects) == 0:
         print('[%s] no rectangles to replace' % fn)
+        os.system('cp %s %s' % (imgfn, './replaced/'+fn))
         return
 
     # 2. generating text mask only for complicated regions
@@ -293,7 +294,7 @@ def replace_text_single_image(fn, dataset_path):
         mask = get_mask(rects, img, annotation, exclude_arrow=True, exclude_blob=False)
 
     # 3. put homogeneous patches (remove original text)
-    img_modified = remove_rectangles(rects, img, use_tight_bb=False)
+    img_modified = remove_rectangles(rects, img, use_tight_bb=False, do_perturb=True)
 
     # 4. restore arrow and blob region
     img_result = restore_arrow_blob(img, img_modified, annotation, restore_arrow=False, restore_blob=False)
