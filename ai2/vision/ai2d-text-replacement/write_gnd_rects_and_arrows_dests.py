@@ -51,7 +51,7 @@ def write_gnd_rects_single_image(fn, dataset_path, output_path):
         annotation = json.loads(f.read())
     #
     img = cv2.imread(os.path.join(dataset_path, 'images', fn))
-    im_shape = img.shape
+    img_shape = img.shape
     #
     gnd_vals = []
     text_annotations = annotation['text']  # text regions
@@ -69,7 +69,7 @@ def write_gnd_rects_single_image(fn, dataset_path, output_path):
         rect = text_annotations[ta]['rectangle']
         # pad rect
         rect[0] = np.maximum(np.array(rect[0]) - pad_rect_np, 0)
-        rect[1] = np.minimum(np.array(rect[1]) + pad_rect_np, np.array(im_shape[::-1][1:3])-1)
+        rect[1] = np.minimum(np.array(rect[1]) + pad_rect_np, np.array(img_shape[::-1][1:3])-1)
         #
         start_x = int(rect[0][0])
         start_y = int(rect[0][1])
@@ -80,8 +80,11 @@ def write_gnd_rects_single_image(fn, dataset_path, output_path):
         assert(width >= 0)
         assert(height >= 0)
         out_dict['rect'] = [start_x, start_y, width, height]
-        #---
         out_dict['destinations'] = dests
+        out_dict['img_size'] = {}
+        out_dict['img_size']['height'] = img_shape[0]
+        out_dict['img_size']['width'] = img_shape[1]
+        out_dict['img_size']['nchannel'] = img_shape[2]
         gnd_vals.append(out_dict)
     # write back to the output file
     output_fn = os.path.join(output_path, fn+'.json')
