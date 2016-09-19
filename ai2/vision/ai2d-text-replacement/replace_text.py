@@ -357,18 +357,18 @@ if __name__ == '__main__':
     # read list of images in GND category annotation
     with open(os.path.join(dataset_path, "categories.json")) as f:
         file_list = json.loads(f.read())
-    # #
-    # parallel.multimap(replace_text_single_image, file_list, dataset_path)
+    #
+    parallel.multimap(replace_text_single_image, file_list, dataset_path)
 
-    import progressbar as pgb
-    widgets = ['test sample: ', pgb.Percentage(), ' ', pgb.Bar(marker=pgb.RotatingMarker()), ' ', pgb.ETA(),
-               ' ']  # , pgb.FileTransferSpeed()]
-    pbar = pgb.ProgressBar(widgets=widgets, maxval=100)
-    pbar.start()
-    for i, fn in enumerate(file_list):
-        pbar.update(i * 100 / len(file_list))
-        replace_text_single_image(fn, dataset_path)
-    pbar.finish()
+    # import progressbar as pgb
+    # widgets = ['test sample: ', pgb.Percentage(), ' ', pgb.Bar(marker=pgb.RotatingMarker()), ' ', pgb.ETA(),
+    #            ' ']  # , pgb.FileTransferSpeed()]
+    # pbar = pgb.ProgressBar(widgets=widgets, maxval=100)
+    # pbar.start()
+    # for i, fn in enumerate(file_list):
+    #     pbar.update(i * 100 / len(file_list))
+    #     replace_text_single_image(fn, dataset_path)
+    # pbar.finish()
 
     # fn = '4647.png' # '636.png' # '4837.png'
     # replace_text_single_image(fn, dataset_path)
