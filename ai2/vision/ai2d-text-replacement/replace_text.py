@@ -365,20 +365,21 @@ def replace_text_single_image(fn, dataset_path, verbose=False, dataset_name='ai2
         print("[%s] done. Elapsed time: %d sec" % (fn, time.time()-timea))
 
 
-def run_replace_text(file_list, dataset_path, dataset_name):
-    # #
-    # parallel.multimap(replace_text_single_image, file_list, dataset_path)
+def run_replace_text(file_list, dataset_path, dataset_name, run_parallel=True):
+    if run_parallel:
+        parallel.multimap(replace_text_single_image, file_list, dataset_path)
+    else
+        import progressbar as pgb
+        widgets = ['test sample: ', pgb.Percentage(), ' ', pgb.Bar(marker=pgb.RotatingMarker()), ' ', pgb.ETA(),
+                   ' ']  # , pgb.FileTransferSpeed()]
+        pbar = pgb.ProgressBar(widgets=widgets, maxval=100)
+        pbar.start()
+        for i, fn in enumerate(file_list):
+            pbar.update(i * 100 / len(file_list))
+            replace_text_single_image(fn, dataset_path, verbose=False, dataset_name=dataset_name)
+        pbar.finish()
 
-    import progressbar as pgb
-    widgets = ['test sample: ', pgb.Percentage(), ' ', pgb.Bar(marker=pgb.RotatingMarker()), ' ', pgb.ETA(),
-               ' ']  # , pgb.FileTransferSpeed()]
-    pbar = pgb.ProgressBar(widgets=widgets, maxval=100)
-    pbar.start()
-    for i, fn in enumerate(file_list):
-        pbar.update(i * 100 / len(file_list))
-        replace_text_single_image(fn, dataset_path, verbose=False, dataset_name=dataset_name)
-    pbar.finish()
-
+    # # for one image for debugging
     # fn = '4647.png' # '636.png' # '4837.png'
     # replace_text_single_image(fn, dataset_path)
 
