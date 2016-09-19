@@ -22,36 +22,8 @@ from parse_annotation import is_this_text_in_relationship
 is_visualize = False
 target_rels = ['intraObjectLinkage', 'intraObjectRegionLabel', 'intraObjectLabel', 'intraObjectTextLinkage']
 
-
-
-import logging
-
-logger = logging.getLogger(__name__)
-
-
-def init_logging(log_format='default', log_level='debug'):
-    if log_level == 'debug':
-        base_logging_level = logging.DEBUG
-    elif log_level == 'info':
-        base_logging_level = logging.INFO
-    elif log_level == 'warning':
-        base_logging_level = logging.WARNING
-    else:
-        raise TypeError('%s is an incorrect logging type!', log_level)
-    if len(logger.handlers) == 0:
-        ch = logging.StreamHandler()
-        logger.setLevel(base_logging_level)
-        ch.setLevel(base_logging_level)
-        if log_format == 'default':
-            formatter = logging.Formatter(fmt='%(asctime)s: %(levelname)s: %(message)s \t[%(filename)s: %(lineno)d]', datefmt='%m/%d %I:%M:%S')
-        elif log_format == 'defaultMilliseconds':
-            formatter = logging.Formatter(fmt='%(asctime)s: %(levelname)s: %(message)s \t[%(filename)s: %(lineno)d]')
-        else:
-            formatter = logging.Formatter(fmt=log_format, datefmt='%m/%d %I:%M:%S')
-
-        ch.setFormatter(formatter)
-        logger.addHandler(ch)
-
+from misc import init_logging
+from misc import logger
 
 
 class Rect_attribute:
@@ -149,7 +121,17 @@ def get_tight_bb_with_ocr(patch):
     return sorted_rects
 
 
-def get_rects_to_replace(fn, img, annotation, cropping_func_ptr):
+def get_rects_to_replace(fn, img, annotation, cropping_func_ptr, compute_majority_color=True, compute_tight_bb=True):
+    """
+    if compute_majority_color is False, we just assume the patch as white patch.
+    :param fn:
+    :param img:
+    :param annotation:
+    :param cropping_func_ptr:
+    :param compute_majority_color:
+    :param compute_tight_bb:
+    :return:
+    """
     rects = []
     text_annotations = annotation['text']  # text regions
     for i, ta in enumerate(text_annotations):
@@ -158,34 +140,42 @@ def get_rects_to_replace(fn, img, annotation, cropping_func_ptr):
         rect_attr = Rect_attribute()
         rect = text_annotations[ta]['rectangle']
         # crop the annotated rectangle first
-        # img_cropped = crop_with_safe_pad(img, rect, 10)
         img_cropped, start_pt = cropping_func_ptr(img, rect, 10)
         #
         if is_visualize:
             cv2.imshow("cropped", img_cropped)
             cv2.waitKey(1)
-        #-- 1. determine if each patch's background is homogeneous color by histogram magnitude
-        # - K-means
-        img_array = img_cropped.reshape((img_cropped.shape[0] * img_cropped.shape[1], 3))
-        clt = KMeans(n_clusters=5)
-        clt.fit(img_array)
-        hist = centroid_histogram(clt)
-        # find the majority color
-        majority_hist_idx = np.argmax(hist)
-        majority_color = clt.cluster_centers_[majority_hist_idx]
-        print("[%s's %d-th patch] majority in histogram: %f. Majority color:" % (fn, i, hist[majority_hist_idx]), majority_color)
-        # determine the patch is easy or not (a heuristic criterion)
-        if hist[majority_hist_idx] > 0.5:
+        if compute_majority_color:
+            #-- 1. determine if each patch's background is homogeneous color by histogram magnitude
+            # - K-means
+            img_array = img_cropped.reshape((img_cropped.shape[0] * img_cropped.shape[1], 3))
+            clt = KMeans(n_clusters=5)
+            clt.fit(img_array)
+            hist = centroid_histogram(clt)
+            # find the majority color
+            majority_hist_idx = np.argmax(hist)
+            majority_color = clt.cluster_centers_[majority_hist_idx]
+            print("[%s's %d-th patch] majority in histogram: %f. Majority color:" % (fn, i, hist[majority_hist_idx]), majority_color)
+            # determine the patch is easy or not (a heuristic criterion)
+            if hist[majority_hist_idx] > 0.5:
+                rect_attr.is_easy = True
+            else:
+                rect_attr.is_easy = False
+        else:
             rect_attr.is_easy = True
-        else:
-            rect_attr.is_easy = False
-        # Getting tight BB by calling OCR
+            majority_color = np.array([255.0, 255.0, 255.0])
+        # assigning GND bounding box
         rect_attr.bb = rect
-        ocr_api_rects = get_tight_bb_with_ocr(img_cropped)
-        if len(ocr_api_rects) > 0:
-            rect_attr.tight_bb = (np.array([start_pt, start_pt]) + np.array(ocr_api_rects[0])).tolist()
+        # Getting tight BB by calling OCR
+        if compute_tight_bb:
+            ocr_api_rects = get_tight_bb_with_ocr(img_cropped)
+            if len(ocr_api_rects) > 0:
+                rect_attr.tight_bb = (np.array([start_pt, start_pt]) + np.array(ocr_api_rects[0])).tolist()
+            else:
+                rect_attr.tight_bb = rect  # if OCR does not return anything meaningful, just assign the annotated text box
         else:
-            rect_attr.tight_bb = rect  # if OCR does not return anything meaningful, just assign the annotated text box
+            rect_attr.tight_bb = rect
+        # assign the text information
         rect_attr.text_org = text_annotations[ta]['value']
         rect_attr.text_to_replace = text_annotations[ta]['replacementText']
         rect_attr.replacing_color = majority_color
@@ -201,7 +191,7 @@ def get_rects_to_replace(fn, img, annotation, cropping_func_ptr):
 def get_mask(rects, img, annotation, exclude_arrow=False, exclude_blob=False):
     mask = np.zeros(img.shape[:-1], dtype=img.dtype)
     for rect_attr in rects:
-        if not rect_attr.is_easy:
+        if not rect_attr.is_easy:  # if it's not easy, do inpainting
             rect = rect_attr.bb
             mask[rect[0][1]:rect[1][1], rect[0][0]:rect[1][0]] = 255  # todo: change it to a function call
     # exclude all arrows
@@ -302,10 +292,13 @@ def put_text_in_rects(img_result, rects, img, fn):
     surface.write_to_png('./replaced/'+ fn)  # write to file
 
 
-def replace_text_single_image(fn, dataset_path):
+def replace_text_single_image(fn, dataset_path, verbose=False):
+    import time
+    timea = time.time()
     do_inpainting = False  # todo: do not make the parameters this much isolated
 
-    logging.info("[%s] begins" % fn)
+    if verbose:
+        print("[%s] begins" % fn)
     annotation_fn = os.path.join(dataset_path, 'annotations', fn+'.json')
     with open(annotation_fn) as f:
         annotation = json.loads(f.read())
@@ -317,9 +310,10 @@ def replace_text_single_image(fn, dataset_path):
         cv2.waitKey(1)
 
     # 1. get the rectangles to replace the text inside
-    rects = get_rects_to_replace(fn, img, annotation, crop_with_safe_pad)
+    rects = get_rects_to_replace(fn, img, annotation, crop_with_safe_pad, compute_majority_color=False, compute_tight_bb=False)
     if len(rects) == 0:
-        print('[%s] no rectangles to replace' % fn)
+        if verbose:
+            print('[%s] no rectangles to replace' % fn)
         os.system('cp %s %s' % (imgfn, './replaced/'+fn))
         return
 
@@ -345,11 +339,13 @@ def replace_text_single_image(fn, dataset_path):
         cv2.waitKey(1)
 
     # 5. put text on the cleaned up image
-    print("[%s] putting text..." % fn)
+    if verbose:
+        print("[%s] putting text..." % fn)
     put_text_in_rects(img_result, rects, img, fn)
 
     # finish
-    logging.info("[%s] done" % fn)
+    if verbose:
+        print("[%s] done. Elapsed time: %d sec" % (fn, time.time()-timea))
 
 
 if __name__ == '__main__':
@@ -357,14 +353,24 @@ if __name__ == '__main__':
 
     init_logging()
 
+    logger.info("code begins")
     # read list of images in GND category annotation
     with open(os.path.join(dataset_path, "categories.json")) as f:
         file_list = json.loads(f.read())
-    #
-    parallel.multimap(replace_text_single_image, file_list, dataset_path)
+    # #
+    # parallel.multimap(replace_text_single_image, file_list, dataset_path)
 
-    # for fn in file_list:
-    #     replace_text_single_image(fn, dataset_path)
+    import progressbar as pgb
+    widgets = ['test sample: ', pgb.Percentage(), ' ', pgb.Bar(marker=pgb.RotatingMarker()), ' ', pgb.ETA(),
+               ' ']  # , pgb.FileTransferSpeed()]
+    pbar = pgb.ProgressBar(widgets=widgets, maxval=100)
+    pbar.start()
+    for i, fn in enumerate(file_list):
+        pbar.update(i * 100 / len(file_list))
+        replace_text_single_image(fn, dataset_path)
+    pbar.finish()
 
     # fn = '4647.png' # '636.png' # '4837.png'
     # replace_text_single_image(fn, dataset_path)
+
+    logger.info("code finished")
