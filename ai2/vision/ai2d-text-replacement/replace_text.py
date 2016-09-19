@@ -121,7 +121,11 @@ def get_tight_bb_with_ocr(patch):
     return sorted_rects
 
 
-def get_rects_to_replace(fn, img, annotation, cropping_func_ptr, compute_majority_color=True, compute_tight_bb=True):
+def get_rects_to_replace(fn, img, annotation, cropping_func_ptr,
+                         compute_majority_color=True,
+                         compute_tight_bb=True,
+                         checking_relationship=True,
+                         dataset_name='ai2d'):
     """
     if compute_majority_color is False, we just assume the patch as white patch.
     :param fn:
@@ -132,11 +136,19 @@ def get_rects_to_replace(fn, img, annotation, cropping_func_ptr, compute_majorit
     :param compute_tight_bb:
     :return:
     """
+    if dataset_name == 'ai2d':
+        checking_relationship = True
+        org_text_field_name = 'value'
+    elif dataset_name == 'ck12':
+        checking_relationship = False
+        org_text_field_name = 'rawText'
+    #
     rects = []
     text_annotations = annotation['text']  # text regions
     for i, ta in enumerate(text_annotations):
-        if not is_this_text_in_relationship(annotation['relationships'], ta, target_rels):
-            continue
+        if checking_relationship:
+            if not is_this_text_in_relationship(annotation['relationships'], ta, target_rels):
+                continue
         rect_attr = Rect_attribute()
         rect = text_annotations[ta]['rectangle']
         # crop the annotated rectangle first
@@ -176,7 +188,7 @@ def get_rects_to_replace(fn, img, annotation, cropping_func_ptr, compute_majorit
         else:
             rect_attr.tight_bb = rect
         # assign the text information
-        rect_attr.text_org = text_annotations[ta]['value']
+        rect_attr.text_org = text_annotations[ta][org_text_field_name]
         rect_attr.text_to_replace = text_annotations[ta]['replacementText']
         rect_attr.replacing_color = majority_color
         if majority_color.mean() < 40:
@@ -292,7 +304,7 @@ def put_text_in_rects(img_result, rects, img, fn):
     surface.write_to_png('./replaced/'+ fn)  # write to file
 
 
-def replace_text_single_image(fn, dataset_path, verbose=False):
+def replace_text_single_image(fn, dataset_path, verbose=False, dataset_name='ai2d'):
     import time
     timea = time.time()
     do_inpainting = False  # todo: do not make the parameters this much isolated
@@ -310,7 +322,10 @@ def replace_text_single_image(fn, dataset_path, verbose=False):
         cv2.waitKey(1)
 
     # 1. get the rectangles to replace the text inside
-    rects = get_rects_to_replace(fn, img, annotation, crop_with_safe_pad, compute_majority_color=False, compute_tight_bb=False)
+    rects = get_rects_to_replace(fn, img, annotation, crop_with_safe_pad,
+                                 compute_majority_color=False,
+                                 compute_tight_bb=False,
+                                 dataset_name=dataset_name)
     if len(rects) == 0:
         if verbose:
             print('[%s] no rectangles to replace' % fn)
@@ -348,29 +363,51 @@ def replace_text_single_image(fn, dataset_path, verbose=False):
         print("[%s] done. Elapsed time: %d sec" % (fn, time.time()-timea))
 
 
-if __name__ == '__main__':
-    dataset_path = "./ai2d"
+def run_replace_text(file_list, dataset_path, dataset_name):
+    # #
+    # parallel.multimap(replace_text_single_image, file_list, dataset_path)
 
-    init_logging()
-
-    logger.info("code begins")
-    # read list of images in GND category annotation
-    with open(os.path.join(dataset_path, "categories.json")) as f:
-        file_list = json.loads(f.read())
-    #
-    parallel.multimap(replace_text_single_image, file_list, dataset_path)
-
-    # import progressbar as pgb
-    # widgets = ['test sample: ', pgb.Percentage(), ' ', pgb.Bar(marker=pgb.RotatingMarker()), ' ', pgb.ETA(),
-    #            ' ']  # , pgb.FileTransferSpeed()]
-    # pbar = pgb.ProgressBar(widgets=widgets, maxval=100)
-    # pbar.start()
-    # for i, fn in enumerate(file_list):
-    #     pbar.update(i * 100 / len(file_list))
-    #     replace_text_single_image(fn, dataset_path)
-    # pbar.finish()
+    import progressbar as pgb
+    widgets = ['test sample: ', pgb.Percentage(), ' ', pgb.Bar(marker=pgb.RotatingMarker()), ' ', pgb.ETA(),
+               ' ']  # , pgb.FileTransferSpeed()]
+    pbar = pgb.ProgressBar(widgets=widgets, maxval=100)
+    pbar.start()
+    for i, fn in enumerate(file_list):
+        pbar.update(i * 100 / len(file_list))
+        replace_text_single_image(fn, dataset_path, verbose=False, dataset_name=dataset_name)
+    pbar.finish()
 
     # fn = '4647.png' # '636.png' # '4837.png'
     # replace_text_single_image(fn, dataset_path)
+
+
+def run_ai2d():
+    dataset_path = "./ai2d"
+
+    # read list of images in GND category annotation
+    with open(os.path.join(dataset_path, "categories.json")) as f:
+        file_list = json.loads(f.read())
+
+    run_replace_text(file_list, dataset_path, dataset_name='ai2d')
+
+def run_ck12():
+    import glob
+    dataset_path = "./ck12"
+
+    file_list_full = glob.glob(os.path.join(dataset_path, 'images', '*.png'))
+    file_list = []
+    for fn in file_list_full:
+        file_list.append(os.path.basename(fn))
+
+    run_replace_text(file_list, dataset_path, dataset_name='ck12')
+
+
+if __name__ == '__main__':
+    init_logging()
+
+    logger.info("code begins")
+
+    # run_ai2d()
+    run_ck12()
 
     logger.info("code finished")
