@@ -139,12 +139,14 @@ def get_rects_to_replace(fn, img, annotation, cropping_func_ptr,
     if dataset_name == 'ai2d':
         checking_relationship = True
         org_text_field_name = 'value'
+        text_field_name = 'text'
     elif dataset_name == 'ck12':
         checking_relationship = False
         org_text_field_name = 'rawText'
+        text_field_name = 'diagramText'
     #
     rects = []
-    text_annotations = annotation['text']  # text regions
+    text_annotations = annotation[text_field_name]  # text regions
     for i, ta in enumerate(text_annotations):
         if checking_relationship:
             if not is_this_text_in_relationship(annotation['relationships'], ta, target_rels):

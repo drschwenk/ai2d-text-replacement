@@ -13,7 +13,33 @@ from _collections import OrderedDict
 target_rels = ['intraObjectLinkage', 'intraObjectRegionLabel', 'intraObjectLabel', 'intraObjectTextLinkage']
 
 
-def get_text_stat(fn, dataset_path, text_hist, pattern):
+
+def find_all_destinations_with_text(ta, annotation):
+    """
+    'dest' means {'arrow': <arrow_polygon>, 'dest_polygon': <destination's polygon>}
+    :param ta: text annotation
+    :param annotation: all annotation information
+    :return: [{'arrow': <arrow_polygon>, 'dest_blob': <blob_polygon>}]
+    """
+    dests = []
+    for rel in annotation['relationships']:
+        this_rel = annotation['relationships'][rel]
+        arrow = None
+        if ta == this_rel['origin'] or ta == this_rel['destination']:
+            if 'connector' in this_rel:
+                arrow = annotation['arrows'][this_rel['connector']]['polygon']
+            dest_name = this_rel['destination']
+            rel_type = this_rel['category']
+            if dest_name[0] == 'B':
+                dest_polygon = annotation['blobs'][dest_name]['polygon']
+            else:
+                continue
+            out_dict = {'arrow_polygon': arrow, 'dest_polygon': dest_polygon, 'relationship_type': rel_type}
+            dests.append(out_dict)
+    return dests
+
+
+def get_text_stat(fn, dataset_path, text_hist, pattern, only_with_arrows=False):
     annotation_fn = os.path.join(dataset_path, 'annotations', fn+'.json')
     with open(annotation_fn) as f:
         annotation = json.loads(f.read())
@@ -22,6 +48,12 @@ def get_text_stat(fn, dataset_path, text_hist, pattern):
     for i, ta in enumerate(text_annotations):
         if not is_this_text_in_relationship(annotation['relationships'], ta, target_rels):
             continue
+        if only_with_arrows:
+            dests = find_all_destinations_with_text(ta, annotation)
+            if len(dests) == 0:
+                continue
+            if dests[0]['arrow_polygon'] == None:
+                continue
         text_val = text_annotations[ta]['value']
         #-- basic text normalization
         text_val = text_val.strip()  # remove trailing space
@@ -68,7 +100,7 @@ if __name__ == "__main__":
     pattern = re.compile(r'\b(' + r'|'.join(cachedStopWords) + r')\b\s*')
 
     for fn in file_list:
-        get_text_stat(fn, dataset_path, text_hist, pattern)
+        get_text_stat(fn, dataset_path, text_hist, pattern, only_with_arrows=True)  # only the texts with arrows
 
     thr = 20
     print('Number of unique texts: %d' % len(text_hist))
@@ -88,19 +120,20 @@ if __name__ == "__main__":
     plot_dict(sorted_d_thr)
 
     print('== save lists ==')
+    save_fn = 'classnames_only_with_arrows'
     print('save the list for all')
-    with open('classnames_all.txt', 'w') as f:
+    with open(save_fn+'_all.txt', 'w') as f:
         for i, key in enumerate(sorted_d_thr):
             f.write(str(i) + ', ' + key +'\n')
 
     print('save the list for all with frequency')
-    with open('classnames_all_w_freq.txt', 'w') as f:
+    with open(save_fn+'_all_w_freq.txt', 'w') as f:
         for i, key in enumerate(sorted_d_thr):
             f.write(str(i) + ', ' + key + ', ' + str(sorted_d_thr[key]) + '\n')
 
     # 200
     print('save the list for top 199 in regard to frequency')
-    with open('classnames_200.txt', 'w') as f:
+    with open(save_fn+'_200.txt', 'w') as f:
         cnt = 0
         for i, key in enumerate(sorted_d_thr):
             if cnt == 199:
@@ -110,7 +143,7 @@ if __name__ == "__main__":
         f.write('199, unknown\n')
 
     print('save the list for top 199 with frequency')
-    with open('classnames_200_w_freq.txt', 'w') as f:
+    with open(save_fn+'_200_w_freq.txt', 'w') as f:
         cnt = 0
         for i, key in enumerate(sorted_d_thr):
             if cnt == 199:
@@ -122,7 +155,7 @@ if __name__ == "__main__":
 
     # 50
     print('save the list for top 49 in regard to frequency')
-    with open('classnames_50.txt', 'w') as f:
+    with open(save_fn+'_50.txt', 'w') as f:
         cnt = 0
         for i, key in enumerate(sorted_d_thr):
             if cnt == 49:
@@ -132,7 +165,7 @@ if __name__ == "__main__":
         f.write('49, unknown\n')
 
     print('save the list for top 49 with frequency')
-    with open('classnames_50_w_freq.txt', 'w') as f:
+    with open(save_fn+'_50_w_freq.txt', 'w') as f:
         cnt = 0
         for i, key in enumerate(sorted_d_thr):
             if cnt == 49:
@@ -144,4 +177,4 @@ if __name__ == "__main__":
 
     # copy it to the ai2d_meta directory
     print('copy the class name to metadata directory of ai2d in NN training folder')
-    os.system('cp ./classnames_*.txt /Users/jonghyunc/playground/answer-replaced-text/ai2d_meta/')
+    os.system('cp ./'+save_fn+'_*.txt /Users/jonghyunc/playground/answer-replaced-text/ai2d_meta/')
