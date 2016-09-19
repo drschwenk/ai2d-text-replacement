@@ -390,6 +390,7 @@ def run_ai2d():
 
     run_replace_text(file_list, dataset_path, dataset_name='ai2d')
 
+
 def run_ck12():
     import glob
     dataset_path = "./ck12"
