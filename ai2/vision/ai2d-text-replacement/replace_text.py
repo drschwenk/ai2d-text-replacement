@@ -122,9 +122,8 @@ def get_tight_bb_with_ocr(patch):
 
 
 def get_rects_to_replace(fn, img, annotation, cropping_func_ptr,
-                         compute_majority_color=True,
-                         compute_tight_bb=True,
-                         checking_relationship=True,
+                         compute_majority_color=False,
+                         compute_tight_bb=False,
                          dataset_name='ai2d'):
     """
     if compute_majority_color is False, we just assume the patch as white patch.
@@ -306,7 +305,7 @@ def put_text_in_rects(img_result, rects, img, fn):
     surface.write_to_png('./replaced/'+ fn)  # write to file
 
 
-def replace_text_single_image(fn, dataset_path, verbose=False, dataset_name='ai2d'):
+def replace_text_single_image(fn, dataset_path, verbose, dataset_name):
     import time
     timea = time.time()
     do_inpainting = False  # todo: do not make the parameters this much isolated
@@ -365,9 +364,9 @@ def replace_text_single_image(fn, dataset_path, verbose=False, dataset_name='ai2
         print("[%s] done. Elapsed time: %d sec" % (fn, time.time()-timea))
 
 
-def run_replace_text(file_list, dataset_path, dataset_name, run_parallel=True):
+def run_replace_text(file_list, dataset_path=None, dataset_name=None, run_parallel=True):
     if run_parallel:
-        parallel.multimap(replace_text_single_image, file_list, dataset_path)
+        parallel.multimap(replace_text_single_image, file_list, dataset_path, False, dataset_name)
     else:
         import progressbar as pgb
         widgets = ['test sample: ', pgb.Percentage(), ' ', pgb.Bar(marker=pgb.RotatingMarker()), ' ', pgb.ETA(),
