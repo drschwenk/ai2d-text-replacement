@@ -368,7 +368,7 @@ def replace_text_single_image(fn, dataset_path, verbose=False, dataset_name='ai2
 def run_replace_text(file_list, dataset_path, dataset_name, run_parallel=True):
     if run_parallel:
         parallel.multimap(replace_text_single_image, file_list, dataset_path)
-    else
+    else:
         import progressbar as pgb
         widgets = ['test sample: ', pgb.Percentage(), ' ', pgb.Bar(marker=pgb.RotatingMarker()), ' ', pgb.ETA(),
                    ' ']  # , pgb.FileTransferSpeed()]
