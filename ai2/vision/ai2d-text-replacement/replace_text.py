@@ -282,6 +282,7 @@ def put_text_in_rects(img_result, rects, img, fn):
     for rect_attr in rects:
         rect = rect_attr.bb
         rect_heights = rect[1][1] - rect[0][1]
+        rect_widths = rect[1][0] - rect[0][0]      
         # text_color = rect_attr.text_color
         text_color = [0,0,0]
 
@@ -291,7 +292,7 @@ def put_text_in_rects(img_result, rects, img, fn):
 
         #- put text by CAIRO
         ctx.select_font_face('Sans')
-        font_height = 0.9*rect_heights
+        font_height = 0.9 * min(rect_heights, rect_widths)
         ctx.set_font_size(font_height)  # em-square height is 90 pixels
         # ctx.move_to(int(0.5*rect[0][0]+0.5*rect[1][0]), int(0.1*rect[0][1]+0.9*rect[1][1]))  # move to point (x, y)
 
